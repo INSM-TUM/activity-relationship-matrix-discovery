@@ -61,7 +61,7 @@ jobs:
       - name: Install wasm32-unknown-unknown Toolchain
         run: rustup target add wasm32-unknown-unknown
       - name: Build
-        run: trunk build --release --public-url /matrix-discovery/
+        run: trunk build --release --public-url /activity-relationship-matrix-discovery/
       - name: Copy index.html to 404.html
         run: cp dist/index.html dist/404.html
       - name: Upload artifact
