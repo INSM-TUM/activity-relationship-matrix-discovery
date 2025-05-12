@@ -1,0 +1,25 @@
+[package]
+name = "matrix_discovery"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+yew = "0.19"
+yew-router = "0.16.0"
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["File", "Blob", "Url", "HtmlAnchorElement", "SubmitEvent", "HtmlSelectElement"] }
+getrandom = { version = "0.2.15", features = ["js"] }
+js-sys = "0.3"
+wasm-bindgen-futures = "0.4"
+chrono = "0.4"
+log = "0.4"
+env_logger = "0.11"
+process_mining = "0.3.14"
+thiserror = "2.0.12"
+once_cell = "1.21.0"
+itertools = "0.14.0"
+rstest = "0.25.0"
+
+[[bin]]
+name = "entrypoint"
+path = "src/bin/entrypoint.rs"

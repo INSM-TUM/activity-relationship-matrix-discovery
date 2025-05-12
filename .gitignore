@@ -1,0 +1,5 @@
+/target
+.direnv
+Trunk.toml
+/dist/
+.envrc
