@@ -27,6 +27,13 @@ impl Dependency {
             existential_dependency,
         }
     }
+    pub fn canonical(&self) -> (String, String) {
+        if self.from <= self.to {
+            (self.from.clone(), self.to.clone())
+        } else {
+            (self.to.clone(), self.from.clone())
+        }
+    }
 }
 
 impl std::fmt::Display for Dependency {
@@ -73,6 +80,7 @@ impl FromStr for Dependency {
         let temporal_dependency = match iter.next().copied() {
             Some("d") => Some(temporal::DependencyType::Direct),
             Some("e") => Some(temporal::DependencyType::Eventual),
+            Some("t") => Some(temporal::DependencyType::TrueEventual),
             Some("-") => None,
             Some(s) => panic!("Invalid temporal dependency type {}", s),
             None => panic!("Missing dependency type"),

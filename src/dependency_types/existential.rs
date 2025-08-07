@@ -1,3 +1,6 @@
+use super::temporal::DependencyType as TemporalDependencyType;
+use super::loop_detection::{Loop, detect_loops, activities_in_same_loop, get_loop_for_activity};
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ExistentialDependency {
     pub from: String,
@@ -89,64 +92,177 @@ pub fn check_existential_dependency(
     traces: &[Vec<&str>],
     threshold: f64,
 ) -> Option<ExistentialDependency> {
-    assert!(
-        (0.0..=1.0).contains(&threshold),
-        "Threshold must be between 0 and 1"
-    );
+    let loops = detect_loops(traces);
+    check_existential_dependency_with_loops(from, to, traces, threshold, &loops)
+}
 
-    // if from == to {
-    //     // first check if >2
-    //     if traces.len() > 2 {
-    //         // if even: equivalence
-    //         if traces.len() % 2 == 0 {
-    //             return Some(ExistentialDependency {
-    //                 from: from.to_string(),
-    //                 to: to.to_string(),
-    //                 dependency_type: DependencyType::Equivalence,
-    //                 direction: Direction::Both,
-    //             });
-    //         }
-    //         // if odd: implication
-    //         return Some(ExistentialDependency {
-    //             from: from.to_string(),
-    //             to: to.to_string(),
-    //             dependency_type: DependencyType::Implication,
-    //             direction: Direction::Forward,
-    //         });
-    //     }
-    // }
+/// Checks for existential dependencies with loop context
+pub fn check_existential_dependency_with_loops(
+    from: &str,
+    to: &str,
+    traces: &[Vec<&str>],
+    threshold: f64,
+    loops: &[Loop],
+) -> Option<ExistentialDependency> {
+    assert!((0.0..=1.0).contains(&threshold), "Threshold must be between 0 and 1");
 
-    // if from == to {
-    // TODO: instead of traces.len(), we should use the number of from activities in traces
-    // }
+    let from_in_loop = get_loop_for_activity(from, loops);
+    let _to_in_loop = get_loop_for_activity(to, loops);
+    let same_loop = activities_in_same_loop(from, to, loops);
 
-    let implication = has_implication(from, to, traces, threshold);
+    // Special handling for self-loops
+    if from == to {
+        return handle_self_loop_existential(from, traces, from_in_loop);
+    }
 
-    if implication || has_implication(to, from, traces, threshold) {
+    // Special handling for activities in the same structural loop
+    if same_loop {
+        return handle_same_loop_existential(from, to, traces, threshold);
+    }
+
+    handle_regular_existential(from, to, traces, threshold)
+}
+
+/// Handles existential dependencies for self-loops
+fn handle_self_loop_existential(
+    activity: &str,
+    traces: &[Vec<&str>],
+    _loop_info: Option<&Loop>,
+) -> Option<ExistentialDependency> {
+    let temporal_pattern = detect_self_loop_temporal_pattern(activity, traces);
+    
+    match temporal_pattern {
+        Some(TemporalDependencyType::Direct) => {
+            // Always direct after itself -> (temporal forward direct, implication backwards)
+            Some(ExistentialDependency {
+                from: activity.to_string(),
+                to: activity.to_string(),
+                dependency_type: DependencyType::Implication,
+                direction: Direction::Backward,
+            })
+        }
+        Some(TemporalDependencyType::Eventual) => {
+            // Self loop but not always direct -> (eventual forward, equivalence both)
+            Some(ExistentialDependency {
+                from: activity.to_string(),
+                to: activity.to_string(),
+                dependency_type: DependencyType::Equivalence,
+                direction: Direction::Both,
+            })
+        }
+        _ => {
+            // No self-loops or independence -> (independence, independence)
+            None
+        }
+    }
+}
+
+/// Handles existential dependencies for activities in the same structural loop
+fn handle_same_loop_existential(
+    from: &str,
+    to: &str,
+    traces: &[Vec<&str>],
+    threshold: f64,
+) -> Option<ExistentialDependency> {
+    handle_regular_existential(from, to, traces, threshold)
+}
+
+/// Handles regular (non-loop) existential dependencies
+fn handle_regular_existential(
+    from: &str,
+    to: &str,
+    traces: &[Vec<&str>],
+    threshold: f64,
+) -> Option<ExistentialDependency> {
+    let forward_implication_holds = has_implication(from, to, traces, threshold);
+    let backward_implication_holds = has_implication(to, from, traces, threshold);
+
+    if forward_implication_holds || backward_implication_holds {
+        let final_dependency_type;
+        let final_direction;
+
+        if forward_implication_holds && backward_implication_holds {
+            let mut counts_match_for_equivalence = true;
+            if from != to {
+                for trace in traces.iter() {
+                    let from_present_in_trace = trace.contains(&from);
+                    let to_present_in_trace = trace.contains(&to);
+
+                    if from_present_in_trace && to_present_in_trace {
+                        let count_from = trace.iter().filter(|&&act| act == from).count();
+                        let count_to = trace.iter().filter(|&&act| act == to).count();
+                        if count_from != count_to {
+                            counts_match_for_equivalence = false;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if counts_match_for_equivalence {
+                final_dependency_type = DependencyType::Equivalence;
+                final_direction = Direction::Both;
+            } else {
+                // Both presence implications hold, but counts mismatch. Determine implication direction.
+                final_dependency_type = DependencyType::Implication;
+                
+                let mut any_from_strictly_less_than_to = false;
+                let mut any_from_strictly_greater_than_to = false;
+
+                for trace in traces.iter() {
+                    // Consider only traces where both activities are actually present
+                    let count_from_in_trace = trace.iter().filter(|&&act| act == from).count();
+                    let count_to_in_trace = trace.iter().filter(|&&act| act == to).count();
+
+                    if count_from_in_trace > 0 && count_to_in_trace > 0 { // Both present
+                        if count_from_in_trace < count_to_in_trace {
+                            any_from_strictly_less_than_to = true;
+                        }
+                        if count_from_in_trace > count_to_in_trace {
+                            any_from_strictly_greater_than_to = true;
+                        }
+                    }
+                }
+
+                if any_from_strictly_less_than_to && !any_from_strictly_greater_than_to {
+                    // 'from' count is less than 'to' count in all cases of inequality
+                    final_direction = Direction::Forward; // from => to
+                } else if !any_from_strictly_less_than_to && any_from_strictly_greater_than_to {
+                    // 'from' count is greater than 'to' count in all cases of inequality
+                    final_direction = Direction::Backward; // from <= to
+                } else {
+                    // Mixed inequalities (e.g., some traces from < to, others from > to),
+                    // or no inequalities found despite counts_match_for_equivalence being false (should not happen for from != to).
+                    // Defaulting to Forward as a fallback.
+                    final_direction = Direction::Forward;
+                }
+            }
+        } else if forward_implication_holds {
+            // Only forward implication holds
+            final_dependency_type = DependencyType::Implication;
+            final_direction = Direction::Forward;
+        } else {
+            // Only backward implication holds (since the outer if condition ensures one of them is true)
+            final_dependency_type = DependencyType::Implication;
+            final_direction = Direction::Backward;
+        }
+
         return Some(ExistentialDependency {
             from: from.to_string(),
             to: to.to_string(),
-            dependency_type: if implication && has_implication(to, from, traces, threshold) {
-                DependencyType::Equivalence
-            } else {
-                DependencyType::Implication
-            },
-            direction: if implication {
-                Direction::Forward
-            } else {
-                Direction::Backward
-            },
+            dependency_type: final_dependency_type,
+            direction: final_direction,
         });
     }
 
-    let negated_equivalence = negated_equivalence(from, to, traces, threshold);
-
-    if negated_equivalence {
+    // If no positive dependency (implication or equivalence) was found, check for negated equivalence.
+    let negated_equivalence_holds = negated_equivalence(from, to, traces, threshold);
+    if negated_equivalence_holds {
         return Some(ExistentialDependency {
             from: from.to_string(),
             to: to.to_string(),
             dependency_type: DependencyType::NegatedEquivalence,
-            direction: Direction::Forward,
+            direction: Direction::Forward, // Conventionally Forward for NegatedEquivalence
         });
     }
 
@@ -195,6 +311,41 @@ fn negated_equivalence(from: &str, to: &str, event_names: &[Vec<&str>], threshol
         })
         .count();
     valid_traces as f64 / filtered_traces.len() as f64 >= threshold
+}
+
+/// Helper function to determine temporal pattern for self-loops
+/// Returns the temporal dependency type that would be detected for this self-loop
+fn detect_self_loop_temporal_pattern(activity: &str, traces: &[Vec<&str>]) -> Option<TemporalDependencyType> {
+    let mut has_any_transitions = false;
+    let mut all_transitions_are_direct = true;
+    
+    for trace in traces.iter() {
+        let positions: Vec<usize> = trace
+            .iter()
+            .enumerate()
+            .filter(|(_, &act)| act == activity)
+            .map(|(i, _)| i)
+            .collect();
+        
+        if positions.len() > 1 {
+            for window in positions.windows(2) {
+                has_any_transitions = true;
+                if window[1] != window[0] + 1 {
+                    all_transitions_are_direct = false;
+                }
+            }
+        }
+    }
+    
+    if !has_any_transitions {
+        return None; // No self-loops found (independence)
+    }
+    
+    if all_transitions_are_direct {
+        Some(TemporalDependencyType::Direct)
+    } else {
+        Some(TemporalDependencyType::Eventual)
+    }
 }
 
 #[cfg(test)]
@@ -255,10 +406,43 @@ mod tests {
             from: "A".to_string(),
             to: "A".to_string(),
             dependency_type: DependencyType::Equivalence,
-            direction: Direction::Forward,
+            direction: Direction::Both,
         });
         let actual = check_existential_dependency("A", "A", &traces, 1.0);
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_self_loop_always_direct_existential() {
+        let traces = vec![vec!["A", "A", "A", "B", "C"]];
+        let expected = Some(ExistentialDependency {
+            from: "A".to_string(),
+            to: "A".to_string(),
+            dependency_type: DependencyType::Implication,
+            direction: Direction::Backward,
+        });
+        let actual = check_existential_dependency("A", "A", &traces, 1.0);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_self_loop_not_always_direct_existential() {
+        let traces = vec![vec!["A", "A", "B", "A"]];
+        let expected = Some(ExistentialDependency {
+            from: "A".to_string(),
+            to: "A".to_string(),
+            dependency_type: DependencyType::Equivalence,
+            direction: Direction::Both,
+        });
+        let actual = check_existential_dependency("A", "A", &traces, 1.0);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_self_loop_independence_existential() {
+        let traces = vec![vec!["A", "B", "C"]];
+        let actual = check_existential_dependency("A", "A", &traces, 1.0);
+        assert_eq!(None, actual);
     }
 
     // #[test]

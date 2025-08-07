@@ -136,4 +136,63 @@ impl ExtendedPrefixAutomaton {
             e_v / (s * s.log10())
         }
     }
+
+    pub fn sequence_entropy(&self) -> f64 {
+        // seq(S) - all sequences in all states (excluding root)
+        let seq_s: HashSet<&Event> = self
+            .states
+            .iter()
+            .filter(|(id, _)| *id != &self.root)
+            .flat_map(|(_, state)| &state.sequences)
+            .collect();
+
+        let seq_s_size = seq_s.len() as f64;
+        if seq_s_size == 0.0 {
+            return 0.0;
+        }
+
+        // group sequences by their partition
+        let mut partition_sequences: HashMap<usize, HashSet<&Event>> = HashMap::new();
+
+        for (id, state) in &self.states {
+            if id == &self.root {
+                continue;
+            }
+
+            if let Some(partition) = state.partition {
+                let sequences = partition_sequences.entry(partition).or_default();
+                for event in &state.sequences {
+                    sequences.insert(event);
+                }
+            }
+        }
+
+        let sum_term: f64 = partition_sequences
+            .values()
+            .map(|seqs| {
+                let size = seqs.len() as f64;
+                size * size.log10()
+            })
+            .sum();
+
+        seq_s_size * seq_s_size.log10() - sum_term
+    }
+
+    pub fn normalized_sequence_entropy(&self) -> f64 {
+        let e_s = self.sequence_entropy();
+
+        // denominator (seq(S) * log(seq(S)))
+        let seq_s_size = self
+            .states
+            .iter()
+            .filter(|(id, _)| *id != &self.root)
+            .flat_map(|(_, state)| &state.sequences)
+            .count() as f64;
+
+        if seq_s_size == 0.0 || seq_s_size * seq_s_size.log10() == 0.0 {
+            0.0 // Avoid division by zero
+        } else {
+            e_s / (seq_s_size * seq_s_size.log10())
+        }
+    }
 }

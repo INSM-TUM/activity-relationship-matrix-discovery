@@ -5,6 +5,7 @@ use crate::{
         dependency::{convert_to_dependencies, Dependency},
         existential::{self, check_existential_dependency},
         temporal::{self, check_temporal_dependency},
+        loop_detection::{detect_loops, Loop as DetectedLoop, LoopType},
     },
     parser::parse_into_traces,
 };
@@ -205,7 +206,7 @@ pub fn relation_form() -> Html {
     let current_relation = use_state(RelationInput::default);
     let relations = use_state(Vec::<RelationInput>::new);
     let file_content = use_state(|| None::<String>);
-    let evaluation_result = use_state(|| None::<(usize, usize, usize, usize)>);
+    let evaluation_result = use_state(|| None::<(usize, usize, usize, usize, Vec<DetectedLoop>)>);
 
     let onsubmit = {
         let current = current_relation.clone();
@@ -513,19 +514,62 @@ pub fn relation_form() -> Html {
                 </button>
 
                 // Display evaluation results
-                {if let Some((correct_temporal, total_temporal, correct_existential, total_existential)) = *evaluation_result {
+                {if let Some((correct_temporal, total_temporal, correct_existential, total_existential, detected_loops)) = evaluation_result.as_ref() {
                     html! {
                         <div class="evaluation-results">
                             <h3>{"Evaluation Results"}</h3>
+                            
+                            <div class="loop-results" style="background-color: #f0f8ff; border: 2px solid #4CAF50; padding: 15px; margin: 10px 0; border-radius: 5px;">
+                                <h4 style="color: #2E7D32; margin-top: 0;">{"Loop Detection Results"}</h4>
+                                {if detected_loops.is_empty() {
+                                    html! { 
+                                        <p style="color: #666; font-style: italic;">
+                                            {"No loops detected in the event log - this indicates a well-structured process."}
+                                        </p> 
+                                    }
+                                } else {
+                                    html! {
+                                        <div>
+                                            <p style="color: #D32F2F; font-weight: bold;">
+                                                {format!("Found {} loop(s) in the event log:", detected_loops.len())}
+                                            </p>
+                                            <ul style="margin: 10px 0;">
+                                                {for detected_loops.iter().map(|loop_info| {
+                                                    match &loop_info.loop_type {
+                                                        LoopType::SelfLoop => {
+                                                            let activity = loop_info.activities.iter().next().map(|s| s.as_str()).unwrap_or("Unknown");
+                                                            html! {
+                                                                <li style="margin: 5px 0; color: #FF6F00;">
+                                                                    <strong>{"Self-loop:"}</strong> {format!(" Activity '{}' repeats immediately", activity)}
+                                                                </li>
+                                                            }
+                                                        },
+                                                        LoopType::StructuralLoop => {
+                                                            let activities: Vec<String> = loop_info.activities.iter().cloned().collect();
+                                                            html! {
+                                                                <li style="margin: 5px 0; color: #1976D2;">
+                                                                    <strong>{"Structural loop:"}</strong> {format!(" Activities [{}] form a cycle", 
+                                                                        activities.join(", "))}
+                                                                </li>
+                                                            }
+                                                        }
+                                                    }
+                                                })}
+                                            </ul>
+                                        </div>
+                                    }
+                                }}
+                            </div>
+                            
                             <p>{format!("Temporal Dependencies: {}/{} ({:.0}%)",
                                 correct_temporal,
                                 total_temporal,
-                                (correct_temporal as f64 / total_temporal as f64 * 100.0)
+                                (*correct_temporal as f64 / *total_temporal as f64 * 100.0)
                             )}</p>
                             <p>{format!("Existential Dependencies: {}/{} ({:.0}%)",
                                 correct_existential,
                                 total_existential,
-                                (correct_existential as f64 / total_existential as f64 * 100.0)
+                                (*correct_existential as f64 / *total_existential as f64 * 100.0)
                             )}</p>
                         </div>
                     }
@@ -814,7 +858,7 @@ static DEPS_11: Lazy<Vec<Dependency>> = Lazy::new(|| convert_to_dependencies(STR
 //    );
 //}
 
-pub fn evaluate_deps(deps: &[Dependency], event_log_content: &str) -> (usize, usize, usize, usize) {
+pub fn evaluate_deps(deps: &[Dependency], event_log_content: &str) -> (usize, usize, usize, usize, Vec<DetectedLoop>) {
     let traces: Vec<Vec<String>> = parse_into_traces(None, Some(event_log_content))
         .expect("Failed to parse event log content");
 
@@ -822,6 +866,8 @@ pub fn evaluate_deps(deps: &[Dependency], event_log_content: &str) -> (usize, us
         .iter()
         .map(|trace| trace.iter().map(|s| s.as_str()).collect())
         .collect();
+
+    let detected_loops = detect_loops(&traces_str);
 
     let activities: HashSet<String> = traces
         .iter()
@@ -831,24 +877,22 @@ pub fn evaluate_deps(deps: &[Dependency], event_log_content: &str) -> (usize, us
     let temporal_threshold = 1.0;
     let existential_threshold = 1.0;
 
-    let estimated_capacity = activities.len() * (activities.len() - 1);
+    let estimated_capacity = activities.len() * activities.len();
     let mut adj_matrix = Vec::with_capacity(estimated_capacity);
 
     for from in &activities {
         for to in &activities {
-            if to != from {
-                let temporal_dependency =
-                    check_temporal_dependency(from, to, &traces_str, temporal_threshold);
-                let existential_dependency =
-                    check_existential_dependency(from, to, &traces_str, existential_threshold);
+            let temporal_dependency =
+                check_temporal_dependency(from, to, &traces_str, temporal_threshold);
+            let existential_dependency =
+                check_existential_dependency(from, to, &traces_str, existential_threshold);
 
-                adj_matrix.push(Dependency::new(
-                    from.clone(),
-                    to.clone(),
-                    temporal_dependency,
-                    existential_dependency,
-                ));
-            }
+            adj_matrix.push(Dependency::new(
+                from.clone(),
+                to.clone(),
+                temporal_dependency,
+                existential_dependency,
+            ));
         }
     }
 
@@ -920,6 +964,7 @@ pub fn evaluate_deps(deps: &[Dependency], event_log_content: &str) -> (usize, us
         deps.len(),
         correct_existential,
         deps.len(),
+        detected_loops,
     )
 }
 
@@ -940,24 +985,22 @@ fn _debug_log(log_name: &str, deps: &[Dependency], event_log_path: &str, check_t
     let temporal_threshold = 1.0;
     let existential_threshold = 1.0;
 
-    let estimated_capacity = activities.len() * (activities.len() - 1);
+    let estimated_capacity = activities.len() * activities.len();
     let mut adj_matrix = Vec::with_capacity(estimated_capacity);
 
     for from in &activities {
         for to in &activities {
-            if to != from {
-                let temporal_dependency =
-                    check_temporal_dependency(from, to, &traces_str, temporal_threshold);
-                let existential_dependency =
-                    check_existential_dependency(from, to, &traces_str, existential_threshold);
+            let temporal_dependency =
+                check_temporal_dependency(from, to, &traces_str, temporal_threshold);
+            let existential_dependency =
+                check_existential_dependency(from, to, &traces_str, existential_threshold);
 
-                adj_matrix.push(Dependency::new(
-                    from.clone(),
-                    to.clone(),
-                    temporal_dependency,
-                    existential_dependency,
-                ));
-            }
+            adj_matrix.push(Dependency::new(
+                from.clone(),
+                to.clone(),
+                temporal_dependency,
+                existential_dependency,
+            ));
         }
     }
 
@@ -1051,24 +1094,22 @@ mod tests {
         let temporal_threshold = 1.0;
         let existential_threshold = 1.0;
 
-        let estimated_capacity = activities.len() * (activities.len() - 1);
+        let estimated_capacity = activities.len() * activities.len();
         let mut adj_matrix = Vec::with_capacity(estimated_capacity);
 
         for from in &activities {
             for to in &activities {
-                if to != from {
-                    let temporal_dependency =
-                        check_temporal_dependency(from, to, &traces_str, temporal_threshold);
-                    let existential_dependency =
-                        check_existential_dependency(from, to, &traces_str, existential_threshold);
+                let temporal_dependency =
+                    check_temporal_dependency(from, to, &traces_str, temporal_threshold);
+                let existential_dependency =
+                    check_existential_dependency(from, to, &traces_str, existential_threshold);
 
-                    adj_matrix.push(Dependency::new(
-                        from.clone(),
-                        to.clone(),
-                        temporal_dependency,
-                        existential_dependency,
-                    ));
-                }
+                adj_matrix.push(Dependency::new(
+                    from.clone(),
+                    to.clone(),
+                    temporal_dependency,
+                    existential_dependency,
+                ));
             }
         }
 

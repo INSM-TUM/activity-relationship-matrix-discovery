@@ -6,7 +6,7 @@
 
 Matrix Discovery is a Rust-based web application for processing and analyzing event logs in the XES format. It provides an interface to import, process, and generate XES files.
 
-You can find a live demo of the application at [https://insm-tum.github.io/activity-relationship-matrix-discovery/](https://insm-tum.github.io/activity-relationship-matrix-discovery/)
+You can find a live demo of the application at [https://anonymoushlmnop.github.io/matrix-discovery/](https://anonymoushlmnop.github.io/matrix-discovery/)
 
 ## ✨ Features
 
@@ -53,7 +53,7 @@ used for evaluation.
 ### 1. Clone the repository
 
 ```sh
-git clone https://github.com/INSM-TUM/activity-relationship-matrix-discovery.git && cd matrix-discovery
+git clone https://github.com/anonymoushlmnop/matrix-discovery.git && cd matrix-discovery
 ```
 
 ### 2. Start the web application
@@ -94,7 +94,7 @@ After importing, the application will:
 The project includes evaluation tools for testing dependencies in event logs. Sample event logs and their expected dependencies are provided for testing and validation.
 
 ### How to evaluate with custom data
-First you will need an adjacency matrix with predefined dependencies, that you know is correct, and the corresponding event log. After that you should go to the evaluation page, which you can do by either clicking on the `Evaluation` button on the bottom right of the main page, or by simply navigating to [https://insm-tum.github.io/activity-relationship-matrix-discovery/evaluation](https://insm-tum.github.io/activity-relationship-matrix-discovery/evaluation). There you will be able to first input all of your relationships, one by one, and then import an event log. After you're done doing that, click on `Evaluate Dependencies` and you will get the results displayed, which will show you how many temporal dependencies were correctly identified, and same for the existential dependencies.
+First you will need an adjacency matrix with predefined dependencies, that you know is correct, and the corresponding event log. After that you should go to the evaluation page, which you can do by either clicking on the `Evaluation` button on the bottom right of the main page, or by simply navigating to [https://anonymoushlmnop.github.io/matrix-discovery/evaluation](https://anonymoushlmnop.github.io/matrix-discovery/evaluation). There you will be able to first input all of your relationships, one by one, and then import an event log. After you're done doing that, click on `Evaluate Dependencies` and you will get the results displayed, which will show you how many temporal dependencies were correctly identified, and same for the existential dependencies.
 
 Additionally you can find the adjacency matrices used for the evaluation inside of the `evaluation.rs` file. The numbers correspond to the event log numbers found in `sample-data/`.
 

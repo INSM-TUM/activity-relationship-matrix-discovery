@@ -4,6 +4,8 @@ use yew_router::prelude::*;
 pub enum Route {
     #[at("/")]
     Home,
+    #[at("/matrix-discovery")]
+    MatrixDiscovery,
     #[at("/evaluation")]
     Evaluation,
 }
